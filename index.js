@@ -1,6 +1,6 @@
 /**
- * Revolution MD - Powered by KnightBot Core Engine
- * Owner: Mr Christ X (+50937081286)
+ * Revolution MD - Bot WhatsApp
+ * Créateur & Développeur : Mr Christ X (+50937081286)
  */
 require('./settings')
 const { Boom } = require('@hapi/boom')
@@ -59,10 +59,10 @@ setInterval(() => {
     }
 }, 30_000)
 
-let XeonBotInc = null;
+let RevolutionBot = null;
 
 // ==========================================
-// 🌐 SERVEUR WEB EXPRESS (PORT NORTHFLANK & PAIRING)
+// 🌐 SERVEUR WEB (PORT NORTHFLANK & PAIRING WEB)
 // ==========================================
 const app = express();
 const PORT = process.env.PORT || 30600;
@@ -70,7 +70,6 @@ const PORT = process.env.PORT || 30600;
 app.use(cors());
 app.use(express.json());
 
-// Page Web pour entrer son numéro et obtenir le code
 app.get('/', (req, res) => {
     res.send(`
     <!DOCTYPE html>
@@ -139,11 +138,11 @@ app.get('/api/pair', async (req, res) => {
     const phone = (req.query.phone || '').replace(/[^0-9]/g, '');
     if (!phone || phone.length < 8) return res.status(400).json({ error: 'Numéro invalide' });
 
-    if (!XeonBotInc) return res.status(503).json({ error: 'Le socket démarre. Réessayez dans 5 secondes.' });
+    if (!RevolutionBot) return res.status(503).json({ error: 'Le socket démarre. Réessayez dans 5 secondes.' });
 
     try {
-        if (!XeonBotInc.authState.creds.registered) {
-            let code = await XeonBotInc.requestPairingCode(phone);
+        if (!RevolutionBot.authState.creds.registered) {
+            let code = await RevolutionBot.requestPairingCode(phone);
             code = code?.match(/.{1,4}/g)?.join("-") || code;
             console.log(chalk.green(`[PAIRING WEB] Code généré pour +${phone} : ${code}`));
             return res.json({ code });
@@ -168,13 +167,13 @@ setInterval(() => {
 // ==========================================
 // 🤖 DÉMARRAGE DU SOCKET WHATSAPP
 // ==========================================
-async function startXeonBotInc() {
+async function startRevolutionBot() {
     try {
         let { version } = await fetchLatestBaileysVersion().catch(() => ({ version: [2, 3000, 1015901307] }));
         const { state, saveCreds } = await useMultiFileAuthState(`./session`);
         const msgRetryCounterCache = new NodeCache();
 
-        XeonBotInc = makeWASocket({
+        RevolutionBot = makeWASocket({
             version,
             logger: pino({ level: 'silent' }),
             printQRInTerminal: false,
@@ -197,11 +196,11 @@ async function startXeonBotInc() {
             keepAliveIntervalMs: 15000,
         });
 
-        XeonBotInc.ev.on('creds.update', saveCreds);
-        store.bind(XeonBotInc.ev);
+        RevolutionBot.ev.on('creds.update', saveCreds);
+        store.bind(RevolutionBot.ev);
 
         // Réception et exécution des commandes via main.js
-        XeonBotInc.ev.on('messages.upsert', async chatUpdate => {
+        RevolutionBot.ev.on('messages.upsert', async chatUpdate => {
             try {
                 const mek = chatUpdate.messages[0];
                 if (!mek || !mek.message) return;
@@ -209,25 +208,25 @@ async function startXeonBotInc() {
                 mek.message = (Object.keys(mek.message)[0] === 'ephemeralMessage') ? mek.message.ephemeralMessage.message : mek.message;
                 
                 if (mek.key && mek.key.remoteJid === 'status@broadcast') {
-                    await handleStatus(XeonBotInc, chatUpdate);
+                    await handleStatus(RevolutionBot, chatUpdate);
                     return;
                 }
                 
                 if (mek.key.id.startsWith('BAE5') && mek.key.id.length === 16) return;
 
-                if (XeonBotInc?.msgRetryCounterCache) {
-                    XeonBotInc.msgRetryCounterCache.clear();
+                if (RevolutionBot?.msgRetryCounterCache) {
+                    RevolutionBot.msgRetryCounterCache.clear();
                 }
 
                 // Traitement direct des messages
-                await handleMessages(XeonBotInc, chatUpdate, true);
+                await handleMessages(RevolutionBot, chatUpdate, true);
 
             } catch (err) {
                 console.error("Erreur dans messages.upsert:", err);
             }
         });
 
-        XeonBotInc.decodeJid = (jid) => {
+        RevolutionBot.decodeJid = (jid) => {
             if (!jid) return jid;
             if (/:\d+@/gi.test(jid)) {
                 let decode = jidDecode(jid) || {};
@@ -235,47 +234,48 @@ async function startXeonBotInc() {
             } else return jid;
         };
 
-        XeonBotInc.ev.on('contacts.update', update => {
+        RevolutionBot.ev.on('contacts.update', update => {
             for (let contact of update) {
-                let id = XeonBotInc.decodeJid(contact.id);
+                let id = RevolutionBot.decodeJid(contact.id);
                 if (store && store.contacts) store.contacts[id] = { id, name: contact.notify };
             }
         });
 
-        XeonBotInc.getName = (jid, withoutContact = false) => {
-            const id = XeonBotInc.decodeJid(jid);
-            withoutContact = XeonBotInc.withoutContact || withoutContact;
+        RevolutionBot.getName = (jid, withoutContact = false) => {
+            const id = RevolutionBot.decodeJid(jid);
+            withoutContact = RevolutionBot.withoutContact || withoutContact;
             let v;
             if (id.endsWith("@g.us")) return new Promise(async (resolve) => {
                 v = store.contacts[id] || {};
-                if (!(v.name || v.subject)) v = await XeonBotInc.groupMetadata(id).catch(() => ({}));
+                if (!(v.name || v.subject)) v = await RevolutionBot.groupMetadata(id).catch(() => ({}));
                 resolve(v.name || v.subject || PhoneNumber('+' + id.replace('@s.whatsapp.net', '')).getNumber('international'));
             });
             else v = id === '0@s.whatsapp.net' ? {
                 id,
                 name: 'WhatsApp'
-            } : id === XeonBotInc.decodeJid(XeonBotInc.user?.id || '') ?
-                XeonBotInc.user :
+            } : id === RevolutionBot.decodeJid(RevolutionBot.user?.id || '') ?
+                RevolutionBot.user :
                 (store.contacts[id] || {});
-            return (withoutContact ? '' : v.name) || v.subject || v.verifiedName || PhoneNumber('+' + id.replace('@s.whatsapp.net', '')).getNumber('international');
+            return (withoutContact ? '' : v.name) || v.subject || v.verifiedName || PhoneNumber('+' + jid.replace('@s.whatsapp.net', '')).getNumber('international');
         };
 
-        XeonBotInc.public = true;
-        XeonBotInc.serializeM = (m) => smsg(XeonBotInc, m, store);
+        RevolutionBot.public = true;
+        RevolutionBot.serializeM = (m) => smsg(RevolutionBot, m, store);
 
         // Gestion de la connexion et reconnexion
-        XeonBotInc.ev.on('connection.update', async (s) => {
+        RevolutionBot.ev.on('connection.update', async (s) => {
             const { connection, lastDisconnect } = s;
 
             if (connection === 'open') {
                 console.log(chalk.green(`\n[✓] Revolution MD connecté avec succès à WhatsApp !`));
+                console.log(chalk.cyan(`Propriétaire : Mr Christ X (+50937081286)`));
                 
                 // Envoi du message d'activation en privé
                 setTimeout(async () => {
                     try {
-                        const botNumber = XeonBotInc.user.id.split(':')[0] + '@s.whatsapp.net';
-                        await XeonBotInc.sendMessage(botNumber, {
-                            text: `⚡ *REVOLUTION MD EST OPÉRATIONNEL & CONNECTÉ !* 🧟\n\n👑 *Boss :* Mr Christ X (+50937081286)\n🛠️ *Moteur :* Knight Core (101 commandes prêtes)\n⚡ *Statut :* Actif 24h/24 sans mise en veille.\n\n👉 *Tapez :* .menu ou .help pour afficher toutes les commandes.`
+                        const botNumber = RevolutionBot.user.id.split(':')[0] + '@s.whatsapp.net';
+                        await RevolutionBot.sendMessage(botNumber, {
+                            text: `⚡ *REVOLUTION MD EST OPÉRATIONNEL & CONNECTÉ !* 🧟\n\n👑 *Boss :* Mr Christ X (+50937081286)\n⚡ *Statut :* Actif 24h/24 sans mise en veille.\n\n👉 *Tapez :* .menu ou .help pour afficher toutes les commandes.`
                         });
                     } catch (e) {}
                 }, 3000);
@@ -295,28 +295,28 @@ async function startXeonBotInc() {
                 }
 
                 if (shouldReconnect) {
-                    setTimeout(startXeonBotInc, 3000);
+                    setTimeout(startRevolutionBot, 3000);
                 }
             }
         });
 
-        XeonBotInc.ev.on('group-participants.update', async (update) => {
-            await handleGroupParticipantUpdate(XeonBotInc, update);
+        RevolutionBot.ev.on('group-participants.update', async (update) => {
+            await handleGroupParticipantUpdate(RevolutionBot, update);
         });
 
-        XeonBotInc.ev.on('status.update', async (status) => {
-            await handleStatus(XeonBotInc, status);
+        RevolutionBot.ev.on('status.update', async (status) => {
+            await handleStatus(RevolutionBot, status);
         });
 
-        return XeonBotInc;
+        return RevolutionBot;
 
     } catch (error) {
         console.error('Erreur démarrage socket:', error);
-        setTimeout(startXeonBotInc, 5000);
+        setTimeout(startRevolutionBot, 5000);
     }
 }
 
-startXeonBotInc().catch(error => {
+startRevolutionBot().catch(error => {
     console.error('Erreur fatale:', error);
 });
 
